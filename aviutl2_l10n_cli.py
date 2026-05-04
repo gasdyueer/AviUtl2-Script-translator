@@ -7,24 +7,23 @@ AviUtl2 翻译工具 — 交互式命令行
   python aviutl2_l10n_cli.py -s ./Script -o ./Lang    # 自定义路径
   python aviutl2_l10n_cli.py -s ./Script -n Basic_S   # 启动即过滤
 
-命令:
-  scan          重新扫描脚本目录
-  list          列出所有命名空间
-  show <ns>     查看某命名空间的翻译条目详情
-  preview <ns>  预览生成的 .aul2 内容 (前 30 行)
-  gen <ns>      生成 zh.<ns>.aul2 到输出目录
-  gen <ns> sub   生成到输出目录的 sub 子目录内
-  gen all       生成所有命名空间
-  gen <ns> -f   强制覆盖已有文件
-  translate <ns>  AI 翻译指定命名空间 (DeepSeek)
-  translate all   AI 翻译所有命名空间
-  translate <ns> -d  AI 翻译预览 (不写入)
-  set-key       设置/更新 DeepSeek API key
-  config        查看当前路径配置
-  help          帮助
-  quit / q      退出
+命令 (括号内为简写):
+  scan     (sc)     重新扫描脚本目录
+  list     (ls)     列出所有命名空间
+  show <ns>         查看某命名空间的翻译条目详情
+  preview  (pv) <ns> 预览生成的 .aul2 内容 (前 30 行)
+  gen      (g) <ns>  生成 zh.<ns>.aul2 到输出目录
+  gen      (g) <ns> sub  生成到输出目录的 sub 子目录内
+  gen      (g) all       生成所有命名空间
+  gen      (g) <ns> -f   强制覆盖已有文件
+  translate (tra) <ns>   AI 翻译指定命名空间 (DeepSeek)
+  translate (tra) all     AI 翻译所有命名空间
+  translate (tra) <ns> -d  AI 翻译预览 (不写入)
+  set-key  (key)    设置/更新 DeepSeek API key
+  config   (cfg)    查看当前路径配置
+  help     (h)      帮助
+  quit / q / exit   退出
 """
-
 import os
 import sys
 import argparse
@@ -421,26 +420,25 @@ class L10nREPL:
     def cmd_help(self, args: str):
         """帮助"""
         print(f"""
-{Term.header('可用命令:')}
-  {Term.bold('scan')}        重新扫描脚本目录
-  {Term.bold('list')}        列出所有命名空间及统计
-  {Term.bold('show')}  <ns>  查看命名空间的翻译条目详情
-  {Term.bold('preview')} <ns> 预览生成的 .aul2 内容
-  {Term.bold('gen')}    <ns>         生成 zh.<ns>.aul2 到输出目录
-  {Term.bold('gen')}    <ns> <sub>   生成到输出目录的 <sub> 子目录内
-  {Term.bold('gen')}    all          生成所有命名空间
-  {Term.bold('gen')}    <ns> -f      强制覆盖已有文件
-  {Term.bold('gen')}    <ns> <sub> -f  子目录 + 强制覆盖
-  {Term.bold('translate')} <ns>      AI 翻译指定命名空间
-  {Term.bold('translate')} all       AI 翻译所有命名空间
-  {Term.bold('translate')} <ns> -d   AI 翻译预览 (不写入)
-  {Term.bold('set-key')}             设置/更新 DeepSeek API key
-  {Term.bold('config')}       查看当前路径配置
-  {Term.bold('help')}         显示此帮助
-  {Term.bold('quit')} / q    退出
+{Term.header('可用命令 (括号内为简写):')}
+  {Term.bold('scan')}      (sc)  重新扫描脚本目录
+  {Term.bold('list')}      (ls)  列出所有命名空间及统计
+  {Term.bold('show')}      <ns>  查看命名空间的翻译条目详情
+  {Term.bold('preview')}   (pv)  <ns>  预览生成的 .aul2 内容
+  {Term.bold('gen')}       (g)   <ns>          生成 zh.<ns>.aul2 到输出目录
+  {Term.bold('gen')}       (g)   <ns> <sub>    生成到输出目录的 <sub> 子目录内
+  {Term.bold('gen')}       (g)   all           生成所有命名空间
+  {Term.bold('gen')}       (g)   <ns> -f       强制覆盖已有文件
+  {Term.bold('translate')} (tra) <ns>          AI 翻译指定命名空间
+  {Term.bold('translate')} (tra) all           AI 翻译所有命名空间
+  {Term.bold('translate')} (tra) <ns> -d       AI 翻译预览 (不写入)
+  {Term.bold('set-key')}   (key) 设置/更新 DeepSeek API key
+  {Term.bold('config')}    (cfg) 查看当前路径配置
+  {Term.bold('help')}      (h)   显示此帮助
+  {Term.bold('quit')}      / q / exit  退出
 
 {Term.dim('提示: <ns> 可用 * 或 all 代表所有命名空间')}
-{Term.dim('翻译需要 DeepSeek API key，首次使用 set-key')}
+{Term.dim('翻译需要 DeepSeek API key，首次使用 set-key (或 key)')}
 """)
 
     # ── 主循环 ──
@@ -478,23 +476,23 @@ class L10nREPL:
             if cmd in ("quit", "q", "exit"):
                 print("  bye~")
                 break
-            elif cmd == "scan":
+            elif cmd in ("scan", "sc"):
                 self.cmd_scan(rest)
-            elif cmd == "list":
+            elif cmd in ("list", "ls"):
                 self.cmd_list(rest)
             elif cmd == "show":
                 self.cmd_show(rest)
-            elif cmd == "preview":
+            elif cmd in ("preview", "pv"):
                 self.cmd_preview(rest)
-            elif cmd == "gen":
+            elif cmd in ("gen", "g"):
                 self.cmd_gen(rest)
-            elif cmd == "translate":
+            elif cmd in ("translate", "tra"):
                 self.cmd_translate(rest)
-            elif cmd == "set-key":
+            elif cmd in ("set-key", "key"):
                 self.cmd_set_key(rest)
-            elif cmd == "config":
+            elif cmd in ("config", "cfg"):
                 self.cmd_config(rest)
-            elif cmd == "help":
+            elif cmd in ("help", "h", "?"):
                 self.cmd_help(rest)
             else:
                 print(Term.warn(f"  未知命令: {cmd}  (输入 help 查看帮助)"))

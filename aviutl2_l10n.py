@@ -45,9 +45,10 @@ class ExtractedItem:
 # 正则模式 —— 兼容多种脚本写法
 # ═══════════════════════════════════════════════════════════════
 
-# --information: 的三种格式
-RE_INFO_FULL  = re.compile(r'^--information:(\S+)@(\S+)')   # Name@Namespace ...
-RE_INFO_PLAIN = re.compile(r'^--information:(\S+)')         # Name ... (无 @Namespace)
+# --information: 的两种格式
+
+RE_INFO_FULL  = re.compile(r'^--information:(\S+)@(\S+)')   # EffectName@Namespace ...
+RE_INFO_PLAIN = re.compile(r'^--information:(\S+)')         # 描述文本 (无 @Namespace，效果名用文件名)
 
 # 效果声明: @EffectName (AviUtl2 效果定义，效果名可以数字开头如 @2次式)
 RE_EFFECT = re.compile(r'^@(\S+)')
@@ -176,28 +177,31 @@ def parse_script_file(filepath: str) -> List[ExtractedItem]:
             m = RE_EFFECT.match(line)
             if m:
                 current_effect = m.group(1).strip()
+                found_info = False       # 新效果开始 → 重置上下文等待 --information: 或回退
             continue
 
-        # ── --information:Name@Namespace ... ──
+        # ── --information:EffectName@Namespace ... ──
         m = RE_INFO_FULL.match(line)
         if m:
-            current_effect = m.group(1)
+            current_effect = f"{m.group(1)}@{m.group(2)}"
             namespace = m.group(2)
             found_info = True
             results.append(ExtractedItem("effect_name", current_effect, namespace,
                                          effect_name=current_effect))
             continue
 
-        # ── --information:Name ... (无 @Namespace) ──
+        # ── --information:描述文本 (无 @Namespace) ──
         m = RE_INFO_PLAIN.match(line)
         if m:
-            current_effect = m.group(1)
-            namespace = fallback_ns      # namespace 回退为文件名
+            if current_effect is None:
+                current_effect = fallback_ns          # 无 @EffectName → 效果名=文件名
+            else:
+                current_effect = f"{current_effect}@{fallback_ns}"  # 有 @EffectName → 补 @Namespace
+            namespace = fallback_ns
             found_info = True
             results.append(ExtractedItem("effect_name", current_effect, namespace,
                                          effect_name=current_effect))
             continue
-
         # ── --label:Category\Sub ──
         m = RE_LABEL.match(line)
         if m:
@@ -206,9 +210,17 @@ def parse_script_file(filepath: str) -> List[ExtractedItem]:
                                          effect_name=current_effect or ""))
             continue
 
-        # ── 遇到首个可翻译注解但还没有效果上下文，用文件名回退 ──
+        # ── 遇到首个可翻译注解但还没有效果上下文 ──
         # (仅在确实是一个注解行时才触发，跳过 --[[ 块注释和 -- Lua 注释)
-        if not found_info and current_effect is None:
+        if not found_info and current_effect is not None:
+            # @EffectName 来自非注释行，但没有 --information: — 构建 EffectName@Namespace
+            if not _is_annotation_line(line):
+                continue
+            current_effect = f"{current_effect}@{namespace}"
+            found_info = True
+            results.append(ExtractedItem("effect_name", current_effect, namespace,
+                                         effect_name=current_effect))
+        elif not found_info and current_effect is None:
             if not _is_annotation_line(line):
                 continue
             current_effect = fallback_ns
@@ -397,11 +409,11 @@ def generate_aul2(
 # AI 翻译 (DeepSeek API)
 # ═══════════════════════════════════════════════════════════════
 
-def _build_translation_system_prompt(source_lang: str, target_lang: str) -> str:
-    """构建翻译 system prompt"""
+def _build_translation_system_prompt(target_lang: str) -> str:
+    """构建翻译 system prompt（源语言自动检测）"""
     return (
-        f"You are a professional translator specializing in UI/localization translation. "
-        f"Translate from {source_lang} to {target_lang}. "
+        f"You are a professional translator for UI localization. "
+        f"Translate the following text to {target_lang}. "
         f"Rules:\n"
         f"- Output ONLY the translated text, nothing else. No explanations, no notes.\n"
         f"- Keep it concise — these are UI labels, menu items, parameter names.\n"
@@ -409,7 +421,6 @@ def _build_translation_system_prompt(source_lang: str, target_lang: str) -> str:
         f"- If the text is already in {target_lang}, return it as-is.\n"
         f"- Never output 'Translation:' prefix or quotation marks around the result."
     )
-
 
 def translate_text(
     text: str,
@@ -423,7 +434,7 @@ def translate_text(
     Returns:
         翻译后的文本，失败返回 None
     """
-    system_prompt = _build_translation_system_prompt(source_lang, target_lang)
+    system_prompt = _build_translation_system_prompt(target_lang)
 
     try:
         response = client.chat.completions.create(
@@ -458,7 +469,7 @@ def _batch_translate(
         return []
 
     system_prompt = (
-        _build_translation_system_prompt(source_lang, target_lang)
+        _build_translation_system_prompt(target_lang)
         + "\nI will give you a JSON array of strings. Translate each one and return "
           "EXACTLY a JSON array of translated strings in the same order. No other output."
     )
