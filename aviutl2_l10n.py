@@ -293,7 +293,7 @@ def parse_script_file(filepath: str) -> List[ExtractedItem]:
 def parse_directory(
     script_dir: str,
     target_ns: Optional[str] = None,
-    extensions: Tuple[str, ...] = ('.anm2', '.obj2', '.tra2'),
+    extensions: Tuple[str, ...] = ('.anm2', '.obj2', '.tra2', '.cam2'),
 ) -> Dict[str, List[ExtractedItem]]:
     """扫描目录，按命名空间分组"""
     ns_items: Dict[str, List[ExtractedItem]] = defaultdict(list)
@@ -482,7 +482,7 @@ def _batch_translate(
                 {"role": "user", "content": json.dumps(texts, ensure_ascii=False)},
             ],
             temperature=0.1,
-            max_tokens=2000,
+            max_tokens=4000,
             stream=False,
             extra_body={"thinking": {"type": "disabled"}},
         )
@@ -755,7 +755,7 @@ def cmd_translate(args):
     model = args.model or DEEPSEEK_DEFAULT_MODEL
     source_lang = args.source_lang or "Japanese"
     target_lang = args.lang or "Chinese"
-    batch_size = args.batch_size or 15
+    batch_size = max(1, min(args.batch_size or 15, 80))
     dry_run = args.dry_run
 
     client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
@@ -818,7 +818,7 @@ def main():
     p_trans.add_argument("--lang", "-l", default="Chinese", help="目标语言 (默认: Chinese)")
     p_trans.add_argument("--namespace", "-n", help="只处理指定命名空间 (如 Basic_S)")
     p_trans.add_argument("--batch-size", "-b", type=int, default=15,
-                         help="每批翻译条数 (默认: 15)")
+                         help="每批翻译条数 (默认: 15, 最大: 80)")
     p_trans.add_argument("--dry-run", "-d", action="store_true",
                         help="预览模式，只显示结果不写入文件")
     p_trans.add_argument("--save-key", "-S", action="store_true",
