@@ -1,3 +1,5 @@
+![show](./show.png)
+
 # AviUtl2 Script Translator
 
 解析 AviUtl2 脚本注解，生成翻译模板，并使用 DeepSeek AI 完成本地化翻译。
