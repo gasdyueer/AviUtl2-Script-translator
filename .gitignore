@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.deepseek_key
+*.aul2
+Language/
+Script/
