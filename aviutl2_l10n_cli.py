@@ -41,6 +41,7 @@ from aviutl2_l10n import (
     parse_directory,
     generate_aul2,
     translate_aul2_file,
+    TransProgress,
     _get_key_file,
     _load_api_key,
     _save_api_key,
@@ -354,30 +355,35 @@ class L10nREPL:
 
         # 收集对应 .aul2 文件
         model = DEEPSEEK_DEFAULT_MODEL
-        total_translated = 0
-        total_entries = 0
-
+        filepaths: list = []
         for ns in ns_list:
             fname = f"zh.{ns}.aul2"
             fpath = os.path.join(self.output_dir, fname)
             if not os.path.isfile(fpath):
                 print(Term.warn(f"  跳过: {fname} 不存在 (先 gen {ns} 生成模板)"))
                 continue
+            filepaths.append(fpath)
 
-            print(Term.dim(f"  翻译中: {fname} ..."), end="", flush=True)
-            t, n = translate_aul2_file(
+        if not filepaths:
+            print(Term.warn("  没有可翻译的文件"))
+            return
+
+        progress = TransProgress(len(filepaths))
+
+        total_translated = 0
+        total_entries = 0
+        total_failed = 0
+        for fpath in filepaths:
+            t, n, f = translate_aul2_file(
                 fpath, self._client, model=model,
                 dry_run=dry_run,
+                progress=progress,
             )
             total_translated += t
             total_entries += n
+            total_failed += f
 
-        if total_entries == 0:
-            print(Term.warn("\n  没有待翻译条目"))
-            return
-
-        print()
-        print(Term.ok(f"  完成! 翻译 {total_translated}/{total_entries} 条"))
+        progress.summary()
         if dry_run:
             print(Term.dim("  提示: 去掉 -d 即可写入文件"))
 

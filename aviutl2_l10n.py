@@ -422,6 +422,101 @@ def _build_translation_system_prompt(target_lang: str) -> str:
         f"- Never output 'Translation:' prefix or quotation marks around the result."
     )
 
+# ═══════════════════════════════════════════════════════════════
+# 进度条 & 翻译状态显示
+# ═══════════════════════════════════════════════════════════════
+
+def _fmt_bar(done: int, total: int, width: int = 25) -> str:
+    """格式化进度条: |████████░░░░░░░░░| 8/10  80%"""
+    if total <= 0:
+        return f"|{'░' * width}| 0/0   0%"
+    r = done / total
+    f = min(int(r * width), width)
+    bar = "█" * f + "░" * (width - f)
+    return f"|{bar}| {done}/{total} {r*100:3.0f}%"
+
+
+class TransProgress:
+    """翻译进度跟踪与显示。
+
+    跟踪多个 .aul2 文件的翻译进度，每个文件内显示条目级进度条。
+    输出到 stderr；在终端 (tty) 上使用 \r 原地刷新。
+    """
+
+    def __init__(self, file_count: int):
+        self.file_count = file_count
+        self.file_idx = 0
+        self._t0 = time.time()
+        self._tty = hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
+
+        self.total_translated = 0
+        self.total_failed = 0
+        self.total_entries = 0
+
+    def file_begin(self, filename: str, entry_count: int):
+        self.file_idx += 1
+        self._entry_count = entry_count
+        self._entry_done = 0
+        self._file_ok = 0
+        self._file_fail = 0
+        self._file_t0 = time.time()
+        self._file_failed_items: List[str] = []
+
+        if self._tty and self.file_idx > 1:
+            print(file=sys.stderr)
+
+        header = f"[{self.file_idx}/{self.file_count}] {filename} — {entry_count} 条"
+        print(header, file=sys.stderr, flush=True)
+
+    def batch_done(self, entries_done: int, success: int, fail: int):
+        self._entry_done = entries_done
+        self._file_ok = success
+        self._file_fail = fail
+
+        bar = _fmt_bar(entries_done, self._entry_count)
+        elapsed = time.time() - self._file_t0
+        parts = [bar, f"OK:{success}"]
+        if fail:
+            parts.append(f"FAIL:{fail}")
+        parts.append(f"{elapsed:.1f}s")
+        line = "  " + "  ".join(parts)
+
+        if self._tty:
+            print(f"\r{line}", end="", file=sys.stderr, flush=True)
+        elif entries_done == self._entry_count or entries_done % max(1, self._entry_count // 5) == 0:
+            print(line, file=sys.stderr, flush=True)
+
+    def file_end(self, success: int, fail: int, dry_run: bool, failed_items: List[str]):
+        self.total_translated += success
+        self.total_failed += fail
+        self.total_entries += self._entry_count
+
+        elapsed = time.time() - self._file_t0
+        bar = _fmt_bar(self._entry_count, self._entry_count)
+        tag = " [预览]" if dry_run else " ✓"
+        line = f"  {bar} OK:{success} FAIL:{fail} ({elapsed:.1f}s){tag}"
+
+        if self._tty:
+            print(f"\r{line}", file=sys.stderr, flush=True)
+            print(file=sys.stderr)
+        else:
+            print(line, file=sys.stderr, flush=True)
+
+        if failed_items:
+            for item in failed_items:
+                print(f"    [失败] {item}", file=sys.stderr)
+
+    def summary(self):
+        elapsed = time.time() - self._t0
+        if self._tty:
+            print(file=sys.stderr)
+        print("=" * 50, file=sys.stderr)
+        s = f"总计: {self.file_idx} 个文件, {self.total_translated}/{self.total_entries} 条成功"
+        if self.total_failed:
+            s += f", {self.total_failed} 条失败"
+        s += f"  ({elapsed:.1f}s)"
+        print(s, file=sys.stderr)
+
 def translate_text(
     text: str,
     client: OpenAI,
@@ -509,7 +604,8 @@ def translate_aul2_file(
     target_lang: str = "Chinese",
     dry_run: bool = False,
     batch_size: int = 15,
-) -> Tuple[int, int]:
+    progress: Optional["TransProgress"] = None,
+) -> Tuple[int, int, int]:
     """翻译单个 .aul2 文件中所有未翻译条目。
 
     .aul2 格式: japanese=  (右侧为空 = 待翻译)
@@ -523,9 +619,10 @@ def translate_aul2_file(
         target_lang: 目标语言
         dry_run: True 时只打印不写入
         batch_size: 每批翻译条数
+        progress: 可选进度跟踪器
 
     Returns:
-        (成功翻译数, 总数)
+        (成功翻译数, 总数, 失败数)
     """
     with open(filepath, "r", encoding="utf-8-sig") as f:
         content = f.read()
@@ -549,12 +646,18 @@ def translate_aul2_file(
 
     total = len(untranslated)
     if total == 0:
-        print(f"  [跳过] {os.path.basename(filepath)} — 无需翻译")
-        return 0, 0
+        if not progress:
+            print(f"  [跳过] {os.path.basename(filepath)} — 无需翻译")
+        return 0, 0, 0
 
-    print(f"  {os.path.basename(filepath)}: {total} 条待翻译, 分批处理中...", end="", flush=True)
+    if progress:
+        progress.file_begin(os.path.basename(filepath), total)
+    else:
+        print(f"  {os.path.basename(filepath)}: {total} 条待翻译, 分批处理中...", end="", flush=True)
 
     translated = 0
+    failed = 0
+    failed_items: List[str] = []
     for chunk_start in range(0, total, batch_size):
         chunk_end = min(chunk_start + batch_size, total)
         chunk = untranslated[chunk_start:chunk_end]
@@ -570,7 +673,14 @@ def translate_aul2_file(
                 lines[line_no] = f"{ja}={result}"
                 translated += 1
             else:
-                print(f"\n    [失败] {ja}", file=sys.stderr)
+                failed += 1
+                if progress:
+                    failed_items.append(ja)
+                else:
+                    print(f"\n    [失败] {ja}", file=sys.stderr)
+
+        if progress:
+            progress.batch_done(chunk_end, translated, failed)
 
         if chunk_end < total:
             time.sleep(TRANSLATE_BATCH_DELAY)
@@ -579,9 +689,13 @@ def translate_aul2_file(
         with open(filepath, "w", encoding="utf-8-sig") as f:
             f.write("\n".join(lines))
 
-    status = " [预览]" if dry_run else " ✓"
-    print(f" {translated}/{total} 条{status}")
-    return translated, total
+    if progress:
+        progress.file_end(translated, failed, dry_run, failed_items)
+    else:
+        status = " [预览]" if dry_run else " ✓"
+        print(f" {translated}/{total} 条{status}")
+
+    return translated, total, failed
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -769,18 +883,23 @@ def cmd_translate(args):
         print(f"  [预览模式] 不写入文件")
     print()
 
+    progress = TransProgress(len(aul2_files))
+
     total_translated = 0
     total_entries = 0
+    total_failed = 0
     for filepath in aul2_files:
-        t, n = translate_aul2_file(
+        t, n, f = translate_aul2_file(
             filepath, client, model=model,
             source_lang=source_lang, target_lang=target_lang,
             dry_run=dry_run, batch_size=batch_size,
+            progress=progress,
         )
         total_translated += t
         total_entries += n
+        total_failed += f
 
-    print(f"\n完成! 翻译 {total_translated}/{total_entries} 条。")
+    progress.summary()
     if dry_run:
         print("  提示: 去掉 --dry-run 即可写入文件。")
 
