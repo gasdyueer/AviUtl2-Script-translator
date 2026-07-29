@@ -38,9 +38,11 @@ python aviutl2_l10n_cli.py -s ./MyScripts -o ./MyLang
 
 ## 功能
 
-- **parse** — 扫描脚本目录，提取所有可翻译文本（效果名、滑块、下拉菜单、复选框、颜色、分组等）
+- **parse** — 扫描脚本目录（支持 `.anm2`, `.obj2`, `.tra2`, `.cam2`, `.scn2`），提取所有可翻译文本（效果名、滑块、下拉菜单、复选框、颜色、分组等）
 - **generate** — 生成 `zh.XXX.aul2` 翻译模板，按效果分组
 - **translate** — 调用 DeepSeek API 批量翻译未完成条目，支持预览模式
+- **check** — 翻译完整性检查，扫描后自动运行，对比原文变更（新增/过期）
+- **repair** — 修复 `.aul2` 文件，支持补缺失条目（`-d`预览）和删过期条目（`-p`）
 - **交互式 CLI** — 彩色终端 REPL，方便逐步处理每个命名空间
 
 ## 支持的注解格式
@@ -66,9 +68,9 @@ python aviutl2_l10n_cli.py -s ./MyScripts -o ./MyLang
 | `list` | 列出所有命名空间及统计 |
 | `show <ns>` | 查看命名空间的翻译条目详情 |
 | `preview <ns>` | 预览生成的 `.aul2` 内容（前 30 行） |
+| `check` / `chk` | 翻译完整性检查（扫描后自动运行） |
+| `repair` / `rp` | 修复 `.aul2`：补缺失条目，`-p` 删过期，`-d` 预览 |
 | `gen <ns>` | 生成 `zh.<ns>.aul2` 到输出目录 |
-| `gen all` | 生成所有命名空间 |
-| `gen <ns> -f` | 强制覆盖已有文件 |
 | `translate <ns>` | AI 翻译指定命名空间 |
 | `translate all` | AI 翻译所有命名空间 |
 | `translate <ns> -d` | AI 翻译预览（不写入） |
