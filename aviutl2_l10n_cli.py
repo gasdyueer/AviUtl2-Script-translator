@@ -41,6 +41,8 @@ from aviutl2_l10n import (
     parse_directory,
     generate_aul2,
     translate_aul2_file,
+    check_aul2_integrity,
+    repair_aul2,
     TransProgress,
     _get_key_file,
     _load_api_key,
@@ -153,7 +155,6 @@ class L10nREPL:
         if self._ns_items:
             return True
         return self._do_scan()
-
     def _do_scan(self) -> bool:
         """执行扫描"""
         print(Term.dim(f"  正在扫描 {self.script_dir} ..."))
@@ -166,17 +167,92 @@ class L10nREPL:
             ns_count = len(self._ns_items)
             total = sum(len(v) for v in self._ns_items.values())
             print(Term.ok(f"  扫描完成: {ns_count} 个命名空间, {total} 条可翻译文本"))
+            # 自动运行翻译完整性检查
+            self._run_integrity_check()
             return True
         except Exception as e:
             print(Term.err(f"  扫描失败: {e}"))
             self._last_scan_ok = False
             return False
 
+    def _run_integrity_check(self):
+        """对当前缓存数据运行翻译完整性检查"""
+        if not self._ns_items:
+            return
+        if not os.path.isdir(self.output_dir):
+            print(Term.dim(f"  (Language 目录不存在，跳过完整性检查)"))
+            return
+        # 从输出目录的文件名推断 lang 前缀
+        lang = self._detect_lang_prefix()
+        if not lang:
+            print(Term.dim(f"  (输出目录中无 .aul2 文件，跳过完整性检查)"))
+            return
+        check_aul2_integrity(self._ns_items, self.output_dir, target_lang=lang)
+
+    def _detect_lang_prefix(self) -> Optional[str]:
+        """从输出目录的 .aul2 文件名推断语言前缀，优先 zh"""
+        try:
+            prefixes: set[str] = set()
+            for fname in os.listdir(self.output_dir):
+                if fname.endswith(".aul2") and "." in fname[:-5]:
+                    prefixes.add(fname.split(".")[0])
+            # 优先 zh，其次取第一个
+            if "zh" in prefixes:
+                return "zh"
+            return sorted(prefixes)[0] if prefixes else None
+        except OSError:
+            return None
+
     def _resolve_ns(self, arg: str) -> list:
         """解析命名空间参数: 支持通配符 * 和 all"""
         if arg in ("all", "*"):
             return sorted(self._ns_items.keys())
         return [ns for ns in self._ns_items if ns == arg]
+
+    def cmd_check(self, args: str):
+        """运行翻译完整性检查"""
+        if not self._ensure_scan():
+            return
+        self._run_integrity_check()
+
+    def cmd_repair(self, args: str):
+        """修复 .aul2 翻译文件：重新生成结构 + 合并已有译文"""
+        if not self._ensure_scan():
+            return
+
+        parts = args.split()
+        prune = "-p" in parts or "--prune" in parts
+        dry_run = "-d" in parts or "--dry-run" in parts
+        ns_arg = next((p for p in parts if not p.startswith("-")), "")
+
+        if not ns_arg:
+            print(Term.warn("  用法: repair <ns> [-p] [-d]  或  repair all [-p] [-d]"))
+            return
+
+        namespaces = self._resolve_ns(ns_arg)
+        if not namespaces:
+            print(Term.warn(f"  未找到命名空间: {ns_arg}"))
+            return
+
+        lang = self._detect_lang_prefix() or "zh"
+
+        for ns in namespaces:
+            items = self._ns_items.get(ns, [])
+            if not items:
+                print(Term.warn(f"  {ns}: 无可翻译条目"))
+                continue
+            try:
+                preserved, new_cnt, pruned = repair_aul2(
+                    ns, items, self.output_dir,
+                    target_lang=lang,
+                    prune=prune, dry_run=dry_run,
+                )
+                if not dry_run:
+                    tag = " ✓" if not prune else ""
+                    print(Term.ok(f"  {ns}: 保留 {preserved} 译文, 新增 {new_cnt} 条目"
+                                  + (f", 删除 {pruned} 过期" if prune else "") + tag))
+            except Exception as e:
+                print(Term.err(f"  {ns}: 修复失败 — {e}"))
 
     # ── 命令处理 ──
 
@@ -429,6 +505,8 @@ class L10nREPL:
 {Term.header('可用命令 (括号内为简写):')}
   {Term.bold('scan')}      (sc)  重新扫描脚本目录
   {Term.bold('list')}      (ls)  列出所有命名空间及统计
+  {Term.bold('check')}     (chk) 翻译完整性检查 (扫描后自动运行)
+  {Term.bold('repair')}    (rp)  <ns> [-p] [-d]  修复 .aul2 (补缺失, -p 删过期, -d 预览)
   {Term.bold('show')}      <ns>  查看命名空间的翻译条目详情
   {Term.bold('preview')}   (pv)  <ns>  预览生成的 .aul2 内容
   {Term.bold('gen')}       (g)   <ns>          生成 zh.<ns>.aul2 到输出目录
@@ -486,6 +564,10 @@ class L10nREPL:
                 self.cmd_scan(rest)
             elif cmd in ("list", "ls"):
                 self.cmd_list(rest)
+            elif cmd in ("check", "chk"):
+                self.cmd_check(rest)
+            elif cmd in ("repair", "rp"):
+                self.cmd_repair(rest)
             elif cmd == "show":
                 self.cmd_show(rest)
             elif cmd in ("preview", "pv"):
