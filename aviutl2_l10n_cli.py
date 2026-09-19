@@ -19,6 +19,9 @@ AviUtl2 翻译工具 — 交互式命令行
   translate (tra) <ns>   AI 翻译指定命名空间 (DeepSeek)
   translate (tra) all     AI 翻译所有命名空间
   translate (tra) <ns> -d  AI 翻译预览 (不写入)
+  models            列出 DeepSeek 可用模型 (GET /models)
+  model             交互切换翻译模型
+  model <名称>      直接指定翻译模型
   set-key  (key)    设置/更新 DeepSeek API key
   config   (cfg)    查看当前路径配置
   help     (h)      帮助
@@ -44,6 +47,8 @@ from aviutl2_l10n import (
     check_aul2_integrity,
     repair_aul2,
     TransProgress,
+    fetch_models,
+    select_model,
     _get_key_file,
     _load_api_key,
     _save_api_key,
@@ -120,7 +125,7 @@ class Term:
 class L10nREPL:
     def __init__(self, script_dir: str, output_dir: str,
                  namespace_filter: str = None, api_key: str = None,
-                 save_key: bool = False):
+                 save_key: bool = False, model: str = None):
         self.script_dir = os.path.abspath(script_dir)
         self.output_dir = os.path.abspath(output_dir)
         self.namespace_filter = namespace_filter
@@ -128,6 +133,9 @@ class L10nREPL:
         # 缓存
         self._ns_items: dict = {}
         self._last_scan_ok = False
+
+        # ── 翻译模型 ──
+        self._model: str = model or DEEPSEEK_DEFAULT_MODEL
 
         # ── API key & client ──
         self._client: Optional[OpenAI] = None
@@ -430,7 +438,7 @@ class L10nREPL:
             return
 
         # 收集对应 .aul2 文件
-        model = DEEPSEEK_DEFAULT_MODEL
+        model = self._model
         filepaths: list = []
         for ns in ns_list:
             fname = f"zh.{ns}.aul2"
@@ -444,6 +452,7 @@ class L10nREPL:
             print(Term.warn("  没有可翻译的文件"))
             return
 
+        print(Term.dim(f"  模型: {model}   文件: {len(filepaths)}"))
         progress = TransProgress(len(filepaths))
 
         total_translated = 0
@@ -462,6 +471,48 @@ class L10nREPL:
         progress.summary()
         if dry_run:
             print(Term.dim("  提示: 去掉 -d 即可写入文件"))
+
+    def cmd_models(self, args: str):
+        """列出 DeepSeek 可用模型 (GET /models)"""
+        if not self._ensure_key():
+            return
+        models = fetch_models(self._client)
+        if not models:
+            print(Term.err("  无法获取模型列表"))
+            return
+
+        print()
+        for i, name in enumerate(models, 1):
+            marks = []
+            if name == self._model:
+                marks.append("当前")
+            if name == DEEPSEEK_DEFAULT_MODEL:
+                marks.append("默认")
+            suffix = Term.ok(f"   ({', '.join(marks)})") if marks else ""
+            print(f"  {i}. {Term.bold(name)}{suffix}")
+        if self._model not in models:
+            print(Term.dim(f"  当前模型 {self._model} 不在列表中（仍可正常使用）"))
+        print()
+        print(Term.dim("  model            交互切换模型"))
+        print(Term.dim("  model <模型名>   直接指定模型"))
+        print()
+
+    def cmd_model(self, args: str):
+        """查看/切换翻译模型: model [名称|list]"""
+        arg = args.strip()
+        if arg in ("list", "ls"):
+            self.cmd_models("")
+            return
+        if arg:
+            self._model = arg
+            print(Term.ok(f"  当前模型: {self._model}"))
+            return
+
+        print(Term.dim(f"  当前模型: {self._model}"))
+        if not self._ensure_key():
+            return
+        self._model = select_model(self._client, self._model)
+        print(Term.ok(f"  当前模型: {self._model}"))
 
     def cmd_set_key(self, args: str):
         """设置/更新 API key"""
@@ -496,6 +547,7 @@ class L10nREPL:
   {Term.bold('输出目录:')}   {self.output_dir}
   {Term.bold('命名空间:')}   {self.namespace_filter or '(全部)'}
   {Term.bold('已缓存:')}     {len(self._ns_items)} 个命名空间
+  {Term.bold('翻译模型:')}   {self._model}
   {Term.bold('API key:')}    {key_status}
 """)
 
@@ -516,6 +568,9 @@ class L10nREPL:
   {Term.bold('translate')} (tra) <ns>          AI 翻译指定命名空间
   {Term.bold('translate')} (tra) all           AI 翻译所有命名空间
   {Term.bold('translate')} (tra) <ns> -d       AI 翻译预览 (不写入)
+  {Term.bold('models')}          列出 DeepSeek 可用模型 (GET /models)
+  {Term.bold('model')}           交互切换翻译模型
+  {Term.bold('model')}     <名称> 直接指定翻译模型
   {Term.bold('set-key')}   (key) 设置/更新 DeepSeek API key
   {Term.bold('config')}    (cfg) 查看当前路径配置
   {Term.bold('help')}      (h)   显示此帮助
@@ -576,6 +631,10 @@ class L10nREPL:
                 self.cmd_gen(rest)
             elif cmd in ("translate", "tra"):
                 self.cmd_translate(rest)
+            elif cmd == "models":
+                self.cmd_models(rest)
+            elif cmd == "model":
+                self.cmd_model(rest)
             elif cmd in ("set-key", "key"):
                 self.cmd_set_key(rest)
             elif cmd in ("config", "cfg"):
@@ -605,6 +664,8 @@ def main():
                         help="DeepSeek API key")
     parser.add_argument("-S", "--save-key", action="store_true",
                         help="将 API key 保存到本地文件")
+    parser.add_argument("-m", "--model", default=None,
+                        help=f"翻译模型 (默认: {DEEPSEEK_DEFAULT_MODEL})")
     args = parser.parse_args()
 
     Term.init()
@@ -614,6 +675,7 @@ def main():
         namespace_filter=args.namespace,
         api_key=args.api_key,
         save_key=args.save_key,
+        model=args.model,
     )
     repl.run()
 

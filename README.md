@@ -40,7 +40,8 @@ python aviutl2_l10n_cli.py -s ./MyScripts -o ./MyLang
 
 - **parse** — 扫描脚本目录（支持 `.anm2`, `.obj2`, `.tra2`, `.cam2`, `.scn2`），提取所有可翻译文本（效果名、滑块、下拉菜单、复选框、颜色、分组等）
 - **generate** — 生成 `zh.XXX.aul2` 翻译模板，按效果分组
-- **translate** — 调用 DeepSeek API 批量翻译未完成条目，支持预览模式
+- **translate** — 调用 DeepSeek API 批量翻译未完成条目，支持预览模式；不带 `-m` 时在终端交互选择模型
+- **models** — 列出 DeepSeek 当前可用模型（`GET /models`）
 - **check** — 翻译完整性检查，扫描后自动运行，对比原文变更（新增/过期）
 - **repair** — 修复 `.aul2` 文件，支持补缺失条目（`-d`预览）和删过期条目（`-p`）
 - **交互式 CLI** — 彩色终端 REPL，方便逐步处理每个命名空间
@@ -74,6 +75,9 @@ python aviutl2_l10n_cli.py -s ./MyScripts -o ./MyLang
 | `translate <ns>` | AI 翻译指定命名空间 |
 | `translate all` | AI 翻译所有命名空间 |
 | `translate <ns> -d` | AI 翻译预览（不写入） |
+| `models` | 列出 DeepSeek 可用模型（`GET /models`） |
+| `model` | 交互切换翻译模型 |
+| `model <名称>` | 直接指定翻译模型 |
 | `set-key` | 设置/更新 DeepSeek API key |
 | `config` | 查看当前路径配置 |
 | `help` | 帮助 |
